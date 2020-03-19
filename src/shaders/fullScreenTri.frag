@@ -9,13 +9,9 @@ void main() {
     vec2 uv = gl_FragCoord.xy / uResolution.xy;
     vec4 color = vec4(0.0);
     vec4 sceneColor = texture2D(uScene, uv);
-    vec4 canvasTextureColor = texture2D(uMouseCanvas, uv);
-    vec4 textCanvasColor = texture2D(uTextCanvas, uv);
 
 
-    color = sceneColor + canvasTextureColor;
-
-    color = mix(color, textCanvasColor, step(0.7, uv.x));
+    color = sceneColor;
     
     gl_FragColor = vec4(color);
 }
