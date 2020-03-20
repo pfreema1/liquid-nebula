@@ -14,6 +14,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { BloomPass } from 'three/examples/jsm/postprocessing/BloomPass.js';
 import { FilmPass } from 'three/examples/jsm/postprocessing/FilmPass.js';
 import { debounce } from '../utils/debounce';
+import feedbackFrag from '../../shaders/feedback.frag';
 
 export default class WebGLView {
   constructor(app) {
@@ -37,6 +38,36 @@ export default class WebGLView {
     this.initResizeHandler();
 
     this.initCircles();
+    this.setupFrameBuffer();
+  }
+
+  setupFrameBuffer() {
+    this.renderTargetA = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter
+    });
+    this.renderTargetB = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter
+    });
+
+    // create scene and camera
+    this.fbScene = new THREE.Scene();
+    this.fbCamera = new THREE.OrthographicCamera(window.innerWidth / - 2, window.innerWidth / 2, window.innerHeight / 2, window.innerHeight / - 2, 1, 1000);
+    this.fbCamera.position.z = 2;
+
+    // create mesh to render onto
+    this.fbMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        bgTexture: { value: this.bgRenderTarget.texture },
+        res: { type: 'v2', value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+      },
+      fragmentShader: glslify(feedbackFrag)
+    });
+    const geo = new THREE.PlaneBufferGeometry(window.innerWidth, window.innerHeight);
+    this.fbo = new THREE.Mesh(geo, this.fbMaterial);
+
+    this.fbScene.add(this.fbo);
   }
 
   initCircles() {
@@ -44,7 +75,7 @@ export default class WebGLView {
     this.circles = [];
 
     for (let i = 0; i < this.numCircles; i++) {
-      const geo = new THREE.CircleBufferGeometry(Math.random() * 0.1 + 0.01, 8);
+      const geo = new THREE.CircleBufferGeometry(Math.random() * 0.1 + 0.01, 16);
       const mat = new THREE.MeshBasicMaterial();
       mat.transparent = true;
       mat.opacity = 0.5;
@@ -135,7 +166,7 @@ export default class WebGLView {
         min: 0.0,
         max: 0.5
       })
-      .on('change', value => {});
+      .on('change', value => { });
   }
 
   initMouseCanvas() {
@@ -176,9 +207,7 @@ export default class WebGLView {
     this.renderTri = new RenderTri(
       this.scene,
       this.renderer,
-      this.bgRenderTarget,
-      this.mouseCanvas,
-      this.textCanvas
+      this.bgRenderTarget
     );
   }
 
@@ -270,10 +299,24 @@ export default class WebGLView {
   }
 
   draw() {
+
+    // render bg to texture
     this.renderer.setRenderTarget(this.bgRenderTarget);
     this.renderer.render(this.bgScene, this.bgCamera);
     this.renderer.setRenderTarget(null);
 
+    this.renderer.setRenderTarget(this.renderTargetB);
+    this.renderer.render(this.fbScene, this.fbCamera);
+    this.renderer.setRenderTarget(null);
+
+    let t = this.renderTargetA;
+    this.renderTargetA = this.renderTargetB;
+    this.renderTargetB = t;
+    this.renderTri.triMaterial.uniforms.uScene = this.renderTargetB.texture;
+
+
+
+    // render to screen
     this.renderer.render(this.scene, this.camera);
 
     if (this.composer) {
