@@ -34,7 +34,7 @@ export default class WebGLView {
     this.initMouseMoveListen();
     this.initMouseCanvas();
     this.initRenderTri();
-    this.initPostProcessing();
+    // this.initPostProcessing();
     this.initResizeHandler();
 
     this.initCircles();
@@ -46,10 +46,7 @@ export default class WebGLView {
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter
     });
-    this.renderTargetB = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter
-    });
+    this.renderTargetB = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight);
 
     // create scene and camera
     this.fbScene = new THREE.Scene();
@@ -59,15 +56,18 @@ export default class WebGLView {
     // create mesh to render onto
     this.fbMaterial = new THREE.ShaderMaterial({
       uniforms: {
-        bgTexture: { value: this.bgRenderTarget.texture },
+        bufferTexture: { value: this.renderTargetA.texture },
+        videoTexture: { value: this.bgRenderTarget.texture },
         res: { type: 'v2', value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
       },
       fragmentShader: glslify(feedbackFrag)
     });
     const geo = new THREE.PlaneBufferGeometry(window.innerWidth, window.innerHeight);
     this.fbo = new THREE.Mesh(geo, this.fbMaterial);
-
     this.fbScene.add(this.fbo);
+
+    this.renderTri.triMaterial.uniforms.uScene.value = this.renderTargetB.texture;
+
   }
 
   initCircles() {
@@ -305,22 +305,24 @@ export default class WebGLView {
     this.renderer.render(this.bgScene, this.bgCamera);
     this.renderer.setRenderTarget(null);
 
-    this.renderer.setRenderTarget(this.renderTargetB);
+    // this.renderer.setRenderTarget(this.renderTargetB);
     this.renderer.render(this.fbScene, this.fbCamera);
-    this.renderer.setRenderTarget(null);
+    // this.renderer.setRenderTarget(null);
 
-    let t = this.renderTargetA;
-    this.renderTargetA = this.renderTargetB;
-    this.renderTargetB = t;
-    this.renderTri.triMaterial.uniforms.uScene = this.renderTargetB.texture;
-
+    // let t = this.renderTargetA;
+    // this.renderTargetA = this.renderTargetB;
+    // this.renderTargetB = t;
 
 
-    // render to screen
-    this.renderer.render(this.scene, this.camera);
+    // this.renderTri.triMaterial.uniforms.uScene.value = this.renderTargetB.texture;
 
-    if (this.composer) {
-      this.composer.render();
-    }
+    // this.fbMaterial.uniforms.bufferTexture.value = this.renderTargetA.texture;
+
+    // // render to screen
+    // this.renderer.render(this.scene, this.camera);
+
+    // if (this.composer) {
+    //   this.composer.render();
+    // }
   }
 }
