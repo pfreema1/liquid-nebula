@@ -1,3 +1,5 @@
+// design idea from:  https://www.youtube.com/watch?v=NJE48IVzNVc
+
 import * as THREE from 'three';
 import GLTFLoader from 'three-gltf-loader';
 import glslify from 'glslify';
@@ -6,8 +8,6 @@ import OrbitControls from 'three-orbitcontrols';
 import TweenMax from 'TweenMax';
 import baseDiffuseFrag from '../../shaders/basicDiffuse.frag';
 import basicDiffuseVert from '../../shaders/basicDiffuse.vert';
-import MouseCanvas from '../MouseCanvas';
-import TextCanvas from '../TextCanvas';
 import RenderTri from '../RenderTri';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -29,12 +29,11 @@ export default class WebGLView {
   async init() {
     this.initThree();
     this.initBgScene();
-    this.initTweakPane();
-    this.setupTextCanvas();
+    // this.initTweakPane();
+
     this.initMouseMoveListen();
-    this.initMouseCanvas();
     this.initRenderTri();
-    // this.initPostProcessing();
+    this.initPostProcessing();
     this.initResizeHandler();
 
     this.initCircles();
@@ -44,9 +43,10 @@ export default class WebGLView {
   setupFrameBuffer() {
     this.renderTargetA = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
       minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat
     });
-    this.renderTargetB = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight);
+    this.renderTargetB = this.renderTargetA.clone();
 
     // create scene and camera
     this.fbScene = new THREE.Scene();
@@ -59,6 +59,8 @@ export default class WebGLView {
         bufferTexture: { value: this.renderTargetA.texture },
         videoTexture: { value: this.bgRenderTarget.texture },
         res: { type: 'v2', value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+        time: { value: 0.0 },
+        mouse: { value: new THREE.Vector2(0, 0) }
       },
       fragmentShader: glslify(feedbackFrag)
     });
@@ -66,17 +68,46 @@ export default class WebGLView {
     this.fbo = new THREE.Mesh(geo, this.fbMaterial);
     this.fbScene.add(this.fbo);
 
-    this.renderTri.triMaterial.uniforms.uScene.value = this.renderTargetB.texture;
+    this.renderer.setRenderTarget(this.renderTargetA);
+    this.renderer.render(this.bgScene, this.bgCamera);
+    this.renderer.setRenderTarget(this.renderTargetB);
+    this.renderer.render(this.bgScene, this.bgCamera);
+    this.renderer.setRenderTarget(null);
 
+    // this.renderTri.triMaterial.uniforms.uScene.value = this.renderTargetB.texture;
+
+  }
+
+  returnRandomColor() {
+    // const colors = [
+    //   '#B41C3A',
+    //   '#DB508F',
+    //   '#2E306F',
+    //   '#3455A7',
+    //   '#EDC3E1',
+    //   '#CC99C9',
+    //   '#2758A6',
+    // ];
+
+    const colors = [
+      '#FF0000',
+      '#0000FF',
+      '#FFFFFF'
+    ];
+
+    return colors[THREE.Math.randInt(0, colors.length - 1)];
   }
 
   initCircles() {
     this.numCircles = 50;
     this.circles = [];
+    this.circlesGroup = new THREE.Group();
 
     for (let i = 0; i < this.numCircles; i++) {
-      const geo = new THREE.CircleBufferGeometry(Math.random() * 0.1 + 0.01, 16);
-      const mat = new THREE.MeshBasicMaterial();
+      const geo = new THREE.CircleBufferGeometry(Math.random() * 0.1 + 0.01, 32);
+      const mat = new THREE.MeshBasicMaterial({
+        color: this.returnRandomColor()
+      });
       mat.transparent = true;
       mat.opacity = 0.5;
       const mesh = new THREE.Mesh(geo, mat);
@@ -94,8 +125,12 @@ export default class WebGLView {
       );
 
       this.circles.push(mesh);
-      this.bgScene.add(mesh);
+
+      this.circlesGroup.add(mesh);
+      // this.bgScene.add(mesh);
     }
+
+    this.bgScene.add(this.circlesGroup);
   }
 
   initResizeHandler() {
@@ -119,15 +154,7 @@ export default class WebGLView {
         this.bgCamera.aspect = this.width / this.height;
         this.bgCamera.updateProjectionMatrix();
 
-        // text canvas
-        this.textCanvas.canvas.width = this.width;
-        this.textCanvas.canvas.height = this.height;
-        this.setupTextCanvas();
-        this.renderTri.triMaterial.uniforms.uTextCanvas.value = this.textCanvas.texture;
 
-        // mouse canvas
-        this.mouseCanvas.canvas.width = this.width;
-        this.mouseCanvas.canvas.height = this.height;
 
         // composer
         this.composer.setSize(this.width, this.height);
@@ -136,21 +163,21 @@ export default class WebGLView {
   }
 
   initPostProcessing() {
-    this.composer = new EffectComposer(this.renderer);
+    // this.composer = new EffectComposer(this.renderer);
 
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    // this.composer.addPass(new RenderPass(this.scene, this.camera));
 
     // const bloomPass = new BloomPass(
-    //   1, // strength
+    //   0.2, // strength
     //   25, // kernel size
-    //   4, // sigma ?
-    //   256 // blur render target resolution
+    //   100, // sigma ?
+    //   512 // blur render target resolution
     // );
     // this.composer.addPass(bloomPass);
 
     // const filmPass = new FilmPass(
-    //   0.35, // noise intensity
-    //   0.025, // scanline intensity
+    //   0.0035, // noise intensity
+    //   0.0025, // scanline intensity
     //   648, // scanline count
     //   false // grayscale
     // );
@@ -169,9 +196,6 @@ export default class WebGLView {
       .on('change', value => { });
   }
 
-  initMouseCanvas() {
-    this.mouseCanvas = new MouseCanvas();
-  }
 
   initMouseMoveListen() {
     this.mouse = new THREE.Vector2();
@@ -179,10 +203,9 @@ export default class WebGLView {
     this.height = window.innerHeight;
 
     window.addEventListener('mousemove', ({ clientX, clientY }) => {
-      this.mouse.x = clientX; //(clientX / this.width) * 2 - 1;
-      this.mouse.y = clientY; //-(clientY / this.height) * 2 + 1;
+      this.mouse.x = (clientX / this.width) * 2 - 1;
+      this.mouse.y = -(clientY / this.height) * 2 + 1;
 
-      this.mouseCanvas.addTouch(this.mouse);
     });
   }
 
@@ -197,9 +220,6 @@ export default class WebGLView {
     this.clock = new THREE.Clock();
   }
 
-  setupTextCanvas() {
-    this.textCanvas = new TextCanvas(this);
-  }
 
   initRenderTri() {
     this.resize();
@@ -214,18 +234,22 @@ export default class WebGLView {
   initBgScene() {
     this.bgRenderTarget = new THREE.WebGLRenderTarget(
       window.innerWidth,
-      window.innerHeight
+      window.innerHeight, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+    }
     );
+
     this.bgCamera = new THREE.PerspectiveCamera(
       50,
       window.innerWidth / window.innerHeight,
       0.01,
       100
     );
-    this.controls = new OrbitControls(this.bgCamera, this.renderer.domElement);
 
     this.bgCamera.position.z = 3;
-    this.controls.update();
+
 
     this.bgScene = new THREE.Scene();
   }
@@ -246,11 +270,6 @@ export default class WebGLView {
     if (this.trackball) this.trackball.handleResize();
   }
 
-  updateTextCanvas(time) {
-    this.textCanvas.textLine.update(time);
-    this.textCanvas.textLine.draw(time);
-    this.textCanvas.texture.needsUpdate = true;
-  }
 
   updateCircles(time) {
     for (let i = 0; i < this.numCircles; i++) {
@@ -273,26 +292,37 @@ export default class WebGLView {
     }
   }
 
+  updateCirclesGroup() {
+    // console.log(this.mouse);
+    // console.log(this.circlesGroup);
+    // TweenMax.to(this.circlesGroup.rotation, 1.0, {
+    //   yoyo: true,
+    //   z: '+=0.3'
+    // });
+    TweenMax.to(this.circlesGroup.rotation, 0.5, {
+      y: this.mouse.x,
+      x: -this.mouse.y
+    });
+  }
+
   update() {
     const delta = this.clock.getDelta();
     const time = performance.now() * 0.0005;
 
-    this.controls.update();
+
 
     if (this.renderTri) {
       this.renderTri.triMaterial.uniforms.uTime.value = time;
     }
 
-    if (this.mouseCanvas) {
-      this.mouseCanvas.update();
-    }
-
-    if (this.textCanvas) {
-      this.updateTextCanvas(time);
+    if (this.fbMaterial) {
+      this.fbMaterial.uniforms.time.value = time;
+      this.fbMaterial.uniforms.mouse.value = this.mouse;
     }
 
     if (this.circles) {
       this.updateCircles(time);
+      this.updateCirclesGroup();
     }
 
     if (this.trackball) this.trackball.update();
@@ -305,24 +335,25 @@ export default class WebGLView {
     this.renderer.render(this.bgScene, this.bgCamera);
     this.renderer.setRenderTarget(null);
 
-    // this.renderer.setRenderTarget(this.renderTargetB);
+    // render to B
+    this.renderer.setRenderTarget(this.renderTargetB);
     this.renderer.render(this.fbScene, this.fbCamera);
-    // this.renderer.setRenderTarget(null);
+    this.renderer.setRenderTarget(null);
 
-    // let t = this.renderTargetA;
-    // this.renderTargetA = this.renderTargetB;
-    // this.renderTargetB = t;
+    let t = this.renderTargetA;
+    this.renderTargetA = this.renderTargetB;
+    this.renderTargetB = t;
 
 
-    // this.renderTri.triMaterial.uniforms.uScene.value = this.renderTargetB.texture;
+    this.renderTri.triMaterial.uniforms.uScene.value = this.renderTargetB.texture;
 
-    // this.fbMaterial.uniforms.bufferTexture.value = this.renderTargetA.texture;
+    this.fbMaterial.uniforms.bufferTexture.value = this.renderTargetA.texture;
 
-    // // render to screen
-    // this.renderer.render(this.scene, this.camera);
+    // render to screen
+    this.renderer.render(this.scene, this.camera);
 
-    // if (this.composer) {
-    //   this.composer.render();
-    // }
+    if (this.composer) {
+      this.composer.render();
+    }
   }
 }
