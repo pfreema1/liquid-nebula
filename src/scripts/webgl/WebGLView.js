@@ -15,6 +15,7 @@ import { BloomPass } from 'three/examples/jsm/postprocessing/BloomPass.js';
 import { FilmPass } from 'three/examples/jsm/postprocessing/FilmPass.js';
 import { debounce } from '../utils/debounce';
 import feedbackFrag from '../../shaders/feedback.frag';
+import JellyFish from '../Jellyfish';
 
 export default class WebGLView {
   constructor(app) {
@@ -29,15 +30,19 @@ export default class WebGLView {
   async init() {
     this.initThree();
     this.initBgScene();
-    // this.initTweakPane();
+    this.initTweakPane();
 
     this.initMouseMoveListen();
     this.initRenderTri();
     this.initPostProcessing();
     this.initResizeHandler();
 
-    this.initCircles();
+    this.initJellyfish();
     this.setupFrameBuffer();
+
+    this.box = new THREE.Mesh(new THREE.BoxBufferGeometry(0.5, 0.5, 0.5),
+      new THREE.MeshBasicMaterial({ wireframe: true }));
+    this.bgScene.add(this.box);
   }
 
   setupFrameBuffer() {
@@ -60,10 +65,20 @@ export default class WebGLView {
         videoTexture: { value: this.bgRenderTarget.texture },
         res: { type: 'v2', value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
         time: { value: 0.0 },
-        mouse: { value: new THREE.Vector2(0, 0) }
+        mouse: { value: new THREE.Vector2(0, 0) },
+        mod1: {
+          value: this.PARAMS.mod1
+        },
+        mod2: {
+          value: this.PARAMS.mod2
+        },
+        mod3: {
+          value: this.PARAMS.mod3
+        },
       },
       fragmentShader: glslify(feedbackFrag)
     });
+    this.fbMaterial.transparent = true;
     const geo = new THREE.PlaneBufferGeometry(window.innerWidth, window.innerHeight);
     this.fbo = new THREE.Mesh(geo, this.fbMaterial);
     this.fbScene.add(this.fbo);
@@ -76,6 +91,22 @@ export default class WebGLView {
 
     // this.renderTri.triMaterial.uniforms.uScene.value = this.renderTargetB.texture;
 
+  }
+
+  initJellyfish() {
+    this.jellyfishArr = [];
+
+    for (let i = 0; i < 100; i++) {
+      let pos = new THREE.Vector3(
+        4.0 * Math.random() - 2,
+        4.0 * Math.random() - 2,
+        4.0 * Math.random() - 2
+      );
+      let jellyfish = new JellyFish(this.bgScene, this.bgCamera, this.pane, this.PARAMS, i, pos);
+
+      this.jellyfishArr.push(jellyfish);
+    }
+    // this.jellyfish = new JellyFish(this.bgScene, this.bgCamera, this.pane, this.PARAMS);
   }
 
   returnRandomColor() {
@@ -98,40 +129,7 @@ export default class WebGLView {
     return colors[THREE.Math.randInt(0, colors.length - 1)];
   }
 
-  initCircles() {
-    this.numCircles = 50;
-    this.circles = [];
-    this.circlesGroup = new THREE.Group();
 
-    for (let i = 0; i < this.numCircles; i++) {
-      const geo = new THREE.CircleBufferGeometry(Math.random() * 0.1 + 0.01, 32);
-      const mat = new THREE.MeshBasicMaterial({
-        color: this.returnRandomColor()
-      });
-      mat.transparent = true;
-      mat.opacity = 0.5;
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(
-        Math.random() * 2 - 1,
-        Math.random() * 2 - 1,
-        Math.random() * 2 - 1
-      );
-      mesh.amplitude = Math.random() * 3 + 1;
-      mesh.frequency = Math.random() + 0.05;
-      mesh.startPos = new THREE.Vector3(
-        mesh.position.x,
-        mesh.position.y,
-        mesh.position.z
-      );
-
-      this.circles.push(mesh);
-
-      this.circlesGroup.add(mesh);
-      // this.bgScene.add(mesh);
-    }
-
-    this.bgScene.add(this.circlesGroup);
-  }
 
   initResizeHandler() {
     window.addEventListener(
@@ -188,12 +186,36 @@ export default class WebGLView {
   initTweakPane() {
     this.pane = new Tweakpane();
 
+    this.PARAMS.mod1 = 1.0;
+    this.PARAMS.mod2 = 1.0;
+    this.PARAMS.mod3 = 1.0;
+
     this.pane
-      .addInput(this.PARAMS, 'rotSpeed', {
-        min: 0.0,
-        max: 0.5
+      .addInput(this.PARAMS, 'mod1', {
+        min: -1.0,
+        max: 1.0
       })
-      .on('change', value => { });
+      .on('change', value => {
+        this.fbMaterial.uniforms.mod1.value = value;
+      });
+
+    this.pane
+      .addInput(this.PARAMS, 'mod2', {
+        min: -1.0,
+        max: 1.0
+      })
+      .on('change', value => {
+        this.fbMaterial.uniforms.mod2.value = value;
+      });
+
+    this.pane
+      .addInput(this.PARAMS, 'mod3', {
+        min: -1.0,
+        max: 1.0
+      })
+      .on('change', value => {
+        this.fbMaterial.uniforms.mod3.value = value;
+      });
   }
 
 
@@ -271,39 +293,8 @@ export default class WebGLView {
   }
 
 
-  updateCircles(time) {
-    for (let i = 0; i < this.numCircles; i++) {
-      const circle = this.circles[i];
-      const scaleVal = Math.sin(time * circle.frequency) * circle.amplitude;
-      const startPos = circle.startPos;
-      time *= 1.02;
-      // const newX = Math.sin(time + startPos.x); //Math.cos(time * 0.001) + Math.sin(time * 0.001) * 0.001;
-      // const newY = Math.cos(time + startPos.y); //Math.sin(time * 0.001) + Math.cos(time * 0.002) * 0.001;
-      const newX =
-        (Math.cos(time + startPos.x + circle.amplitude) +
-          Math.sin(time + startPos.x + circle.amplitude)) *
-        0.5;
-      const newY =
-        (Math.sin(time + startPos.y) + Math.cos(time + startPos.y)) * 0.5;
 
-      circle.position.x = newX;
-      circle.position.y = newY;
-      circle.scale.set(scaleVal, scaleVal, 1);
-    }
-  }
 
-  updateCirclesGroup() {
-    // console.log(this.mouse);
-    // console.log(this.circlesGroup);
-    // TweenMax.to(this.circlesGroup.rotation, 1.0, {
-    //   yoyo: true,
-    //   z: '+=0.3'
-    // });
-    TweenMax.to(this.circlesGroup.rotation, 0.5, {
-      y: this.mouse.x,
-      x: -this.mouse.y
-    });
-  }
 
   update() {
     const delta = this.clock.getDelta();
@@ -320,9 +311,17 @@ export default class WebGLView {
       this.fbMaterial.uniforms.mouse.value = this.mouse;
     }
 
-    if (this.circles) {
-      this.updateCircles(time);
-      this.updateCirclesGroup();
+    if (this.jellyfishArr) {
+      for (let i = 0; i < this.jellyfishArr.length; i++) {
+        let jf = this.jellyfishArr[i];
+        jf.update(time);
+      }
+
+    }
+
+    if (this.box) {
+      this.box.rotation.x += 0.01;
+      this.box.rotation.z += 0.01;
     }
 
     if (this.trackball) this.trackball.update();
