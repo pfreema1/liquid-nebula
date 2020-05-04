@@ -159,6 +159,7 @@ export default class WebGLView {
   }
 
   initPostProcessing() {
+    //GEA
     // this.composer = new EffectComposer(this.renderer);
 
     // this.composer.addPass(new RenderPass(this.scene, this.camera));
