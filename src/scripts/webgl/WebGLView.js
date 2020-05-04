@@ -1,4 +1,5 @@
 // design idea from:  https://www.youtube.com/watch?v=NJE48IVzNVc
+// feedback texture stuff: https://docs.lost.show/blog/feedbackloops/
 
 import * as THREE from 'three';
 import GLTFLoader from 'three-gltf-loader';
@@ -37,60 +38,57 @@ export default class WebGLView {
     this.initPostProcessing();
     this.initResizeHandler();
 
-    this.initJellyfish();
+    // this.initJellyfish();
     this.setupFrameBuffer();
 
-    this.box = new THREE.Mesh(new THREE.BoxBufferGeometry(0.5, 0.5, 0.5),
-      new THREE.MeshBasicMaterial({ wireframe: true }));
+    this.box = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10),
+      new THREE.MeshBasicMaterial({ wireframe: true, color: '#FF0000' }));
+    this.box.position.z = -30;
     this.bgScene.add(this.box);
   }
 
   setupFrameBuffer() {
-    this.renderTargetA = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
-      format: THREE.RGBAFormat
-    });
-    this.renderTargetB = this.renderTargetA.clone();
+    this.bufferTexture = new THREE.WebGLRenderTarget(
+      window.innerWidth,
+      window.innerHeight,
+      { minFilter: THREE.LinearFilter, magFilter: THREE.NearestFilter }
+    );
+    this.lastTexture1 = new THREE.WebGLRenderTarget(
+      window.innerWidth,
+      window.innerHeight,
+      { minFilter: THREE.LinearFilter, magFilter: THREE.NearestFilter }
+    );
+    this.lastTexture2 = new THREE.WebGLRenderTarget(
+      window.innerWidth,
+      window.innerHeight,
+      { minFilter: THREE.LinearFilter, magFilter: THREE.NearestFilter }
+    );
 
-    // create scene and camera
-    this.fbScene = new THREE.Scene();
-    this.fbCamera = new THREE.OrthographicCamera(window.innerWidth / - 2, window.innerWidth / 2, window.innerHeight / 2, window.innerHeight / - 2, 1, 1000);
-    this.fbCamera.position.z = 2;
-
-    // create mesh to render onto
-    this.fbMaterial = new THREE.ShaderMaterial({
+    this.bufferMaterial = new THREE.ShaderMaterial({
       uniforms: {
-        bufferTexture: { value: this.renderTargetA.texture },
-        videoTexture: { value: this.bgRenderTarget.texture },
-        res: { type: 'v2', value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-        time: { value: 0.0 },
-        mouse: { value: new THREE.Vector2(0, 0) },
-        mod1: {
-          value: this.PARAMS.mod1
+        bufferTexture: { type: "t", value: this.bufferTexture.texture },
+        lastTexture: { type: "t", value: null },
+
+        res: {
+          type: "v2",
+          value: new THREE.Vector2(window.innerWidth, window.innerHeight)
         },
-        mod2: {
-          value: this.PARAMS.mod2
-        },
-        mod3: {
-          value: this.PARAMS.mod3
-        },
+        time: { type: "f", value: 0.0 },
+        feedbackStrength: { type: "f", value: this.PARAMS.feedbackStrength },
+        scaleOffset: { type: "f", value: this.PARAMS.scaleOffset },
+        hueShift: { type: "f", value: this.PARAMS.hueShift }
       },
       fragmentShader: glslify(feedbackFrag)
     });
-    this.fbMaterial.transparent = true;
-    const geo = new THREE.PlaneBufferGeometry(window.innerWidth, window.innerHeight);
-    this.fbo = new THREE.Mesh(geo, this.fbMaterial);
-    this.fbScene.add(this.fbo);
 
-    this.renderer.setRenderTarget(this.renderTargetA);
-    this.renderer.render(this.bgScene, this.bgCamera);
-    this.renderer.setRenderTarget(this.renderTargetB);
-    this.renderer.render(this.bgScene, this.bgCamera);
-    this.renderer.setRenderTarget(null);
+    var plane = new THREE.PlaneBufferGeometry(
+      window.innerWidth,
+      window.innerHeight
+    );
 
-    // this.renderTri.triMaterial.uniforms.uScene.value = this.renderTargetB.texture;
-
+    this.bufferObject = new THREE.Mesh(plane, this.bufferMaterial);
+    this.bufferScene = new THREE.Scene();
+    this.bufferScene.add(this.bufferObject);
   }
 
   initJellyfish() {
@@ -186,36 +184,38 @@ export default class WebGLView {
   initTweakPane() {
     this.pane = new Tweakpane();
 
-    this.PARAMS.mod1 = 1.0;
-    this.PARAMS.mod2 = 1.0;
-    this.PARAMS.mod3 = 1.0;
+    this.PARAMS.feedbackStrength = 0.99;
+    this.PARAMS.scaleOffset = 0.8;
+    this.PARAMS.hueShift = 1.0;
 
     this.pane
-      .addInput(this.PARAMS, 'mod1', {
-        min: -1.0,
+      .addInput(this.PARAMS, 'feedbackStrength', {
+        min: 0.5,
         max: 1.0
       })
       .on('change', value => {
-        this.fbMaterial.uniforms.mod1.value = value;
+        this.bufferMaterial.uniforms.feedbackStrength.value = value;
       });
 
     this.pane
-      .addInput(this.PARAMS, 'mod2', {
-        min: -1.0,
-        max: 1.0
+      .addInput(this.PARAMS, 'scaleOffset', {
+        min: 0.8,
+        max: 1.3
       })
       .on('change', value => {
-        this.fbMaterial.uniforms.mod2.value = value;
+        this.bufferMaterial.uniforms.scaleOffset.value = value;
       });
 
     this.pane
-      .addInput(this.PARAMS, 'mod3', {
-        min: -1.0,
+      .addInput(this.PARAMS, 'hueShift', {
+        min: 0.0,
         max: 1.0
       })
       .on('change', value => {
-        this.fbMaterial.uniforms.mod3.value = value;
+        this.bufferMaterial.uniforms.hueShift.value = value;
       });
+
+
   }
 
 
@@ -237,7 +237,8 @@ export default class WebGLView {
     this.camera = new THREE.OrthographicCamera();
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    this.renderer.autoClear = true;
+    this.renderer.setClearColor("#000000");
+    // this.renderer.autoClear = true;
 
     this.clock = new THREE.Clock();
   }
@@ -258,7 +259,7 @@ export default class WebGLView {
       window.innerWidth,
       window.innerHeight, {
       minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
+      magFilter: THREE.nearestFilter,
       format: THREE.RGBAFormat,
     }
     );
@@ -270,7 +271,7 @@ export default class WebGLView {
       100
     );
 
-    this.bgCamera.position.z = 3;
+    this.bgCamera.position.z = 2;
 
 
     this.bgScene = new THREE.Scene();
@@ -329,24 +330,37 @@ export default class WebGLView {
 
   draw() {
 
+    if (!this.bufferTexture) return;
+
     // render bg to texture
-    this.renderer.setRenderTarget(this.bgRenderTarget);
+    this.renderer.setRenderTarget(this.bufferTexture);
     this.renderer.render(this.bgScene, this.bgCamera);
     this.renderer.setRenderTarget(null);
+    // this.renderer.clear();
 
-    // render to B
-    this.renderer.setRenderTarget(this.renderTargetB);
-    this.renderer.render(this.fbScene, this.fbCamera);
+    // // render to B
+    // this.renderer.setRenderTarget(this.renderTargetB);
+    // this.renderer.render(this.fbScene, this.fbCamera);
+    // this.renderer.setRenderTarget(null);
+
+    // let t = this.renderTargetA;
+    // this.renderTargetA = this.renderTargetB;
+    // this.renderTargetB = t;
+
+    this.renderer.setRenderTarget(this.lastTexture1);
+    this.renderer.render(this.bufferScene, this.bgCamera);
     this.renderer.setRenderTarget(null);
 
-    let t = this.renderTargetA;
-    this.renderTargetA = this.renderTargetB;
-    this.renderTargetB = t;
+    var temp = this.lastTexture2;
+    this.lastTexture2 = this.lastTexture1;
+    this.lastTexture1 = temp;
 
 
-    this.renderTri.triMaterial.uniforms.uScene.value = this.renderTargetB.texture;
+    this.renderTri.triMaterial.uniforms.uScene.value = this.lastTexture2.texture;
 
-    this.fbMaterial.uniforms.bufferTexture.value = this.renderTargetA.texture;
+    this.bufferMaterial.uniforms.lastTexture.value = this.lastTexture2.texture;
+
+    // this.fbMaterial.uniforms.bufferTexture.value = this.renderTargetA.texture;
 
     // render to screen
     this.renderer.render(this.scene, this.camera);
